@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "string.h"
 #include "stdio.h"
+#include "analogOutputConverter.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,6 +43,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 
+DAC_HandleTypeDef hdac;
+
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -52,6 +55,10 @@ UART_HandleTypeDef huart3;
 /* USER CODE BEGIN PV */
 uint8_t count = 0;
 float freq = 0;
+const float XMIN = 0;
+const float XMAX = 50;
+const float YMIN = 0;
+const float YMAX = 4095;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,30 +69,13 @@ static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_DAC_Init(void);
 /* USER CODE BEGIN PFP */
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/*void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-        if(htim == &htim1)
-        {
-        		char str[96] = {0, };
-                uint16_t count_main = __HAL_TIM_GET_COUNTER(&htim2);
-                float freq = count_main/1000.0;
-
-                sprintf(str, "Frequency: %0.3f ", freq);
-
-                HAL_UART_Transmit(&huart3, (uint8_t *)str, strlen(str), 1000);
-
-                HAL_TIM_Base_Stop_IT(&htim1);
-
-                __HAL_TIM_SET_COUNTER(&htim2, 0x0000);
-                HAL_TIM_Base_Start_IT(&htim1);
-        }
-}*/
-
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
 	if(htim == &htim4)
@@ -113,7 +103,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 				freq -= (freq*5)/1000;
 
 				char str[96] = {0,};
-				sprintf(str, "Frequency: %.3f Hz\n--------------------\n", (float)freq);
+				sprintf(str, "Frequency: %.3f Hz | OUT %0.3f\n--------------------\n", freq, analogOutputConverter(freq, XMIN, XMAX, YMIN, YMAX));
 				HAL_UART_Transmit(&huart3, (uint8_t*)str, strlen(str), 1000);
 
 				HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
@@ -129,12 +119,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 		char str[96] = {0,};
 
-		sprintf(str,"Frequency: %.3f MHz | %.3f KHz | %lu Hz\n--------------------\n", (float)freq / 1000000.0, (float)freq / 1000.0, (uint32_t)freq);
+		sprintf(str,"Frequency: %.3f MHz | %.3f KHz | %lu Hz | OUT: %f\n--------------------\n", (float)freq / 1000000.0, (float)freq / 1000.0, (uint32_t)freq, analogOutputConverter(freq, XMIN, XMAX, YMIN, YMAX));
 		HAL_UART_Transmit(&huart3, (uint8_t*)str, strlen(str), 1000);
+
+
 
 		HAL_TIM_Base_Stop_IT(&htim1);
 		__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
 		HAL_TIM_Base_Start_IT(&htim1);
+
 	}
 }
 /* USER CODE END 0 */
@@ -172,9 +165,11 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
+  MX_DAC_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
   HAL_TIM_Base_Start(&htim3);
+  __HAL_DAC_ENABLE(&hdac, DAC_CHANNEL_1);
   //HAL_TIM_Base_Start_IT(&htim1);
   //HAL_TIM_Base_Start(&htim2);
 
@@ -186,6 +181,8 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+	  const float Vref = 3.3;
+	  float volt = 1;
     /* USER CODE BEGIN 3 */
 	  if (freq < 2)
 	  {
@@ -201,6 +198,7 @@ int main(void)
 		  HAL_TIM_Base_Start_IT(&htim1);
 		  HAL_TIM_Base_Start(&htim2);
 	  }
+	  HAL_DAC_SetValue(&hdac, DAC1_CHANNEL_1, DAC_ALIGN_12B_R, (volt/Vref)*analogOutputConverter(freq, XMIN, XMAX, YMIN, YMAX));
   }
   /* USER CODE END 3 */
 }
@@ -260,6 +258,44 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief DAC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DAC_Init(void)
+{
+
+  /* USER CODE BEGIN DAC_Init 0 */
+
+  /* USER CODE END DAC_Init 0 */
+
+  DAC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN DAC_Init 1 */
+
+  /* USER CODE END DAC_Init 1 */
+  /** DAC Initialization
+  */
+  hdac.Instance = DAC;
+  if (HAL_DAC_Init(&hdac) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** DAC channel OUT1 config
+  */
+  sConfig.DAC_Trigger = DAC_TRIGGER_NONE;
+  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
+  if (HAL_DAC_ConfigChannel(&hdac, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN DAC_Init 2 */
+
+  /* USER CODE END DAC_Init 2 */
+
 }
 
 /**
