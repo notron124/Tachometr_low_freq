@@ -45,11 +45,13 @@
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 uint8_t count = 0;
+float freq = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,6 +61,7 @@ static void MX_USART3_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -85,37 +88,53 @@ static void MX_TIM3_Init(void);
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
-	if(htim == &htim2)
+	if(htim == &htim4)
 	{
 		if(htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
 		{
 			count++;
 			if(count == 1)
 			{
-				__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
+				__HAL_TIM_SET_COUNTER(&htim4, 0x0000);
 				__HAL_TIM_SET_COUNTER(&htim3, 0x0000);
 			}
 
 			else if(count == 2)
 			{
-				HAL_TIM_IC_Stop_IT(&htim2, TIM_CHANNEL_1);
+				HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_1);
 
 				count = 0;
 
-				uint16_t count_main = HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_1);
-				uint16_t count_secondary = __HAL_TIM_GET_COUNTER(&htim3);
+				uint16_t countMain = HAL_TIM_ReadCapturedValue(&htim4, TIM_CHANNEL_1);
+				uint16_t countSecondary = __HAL_TIM_GET_COUNTER(&htim3);
 				uint16_t arr = __HAL_TIM_GET_AUTORELOAD(&htim3);
-				uint32_t res = count_main + (count_secondary * arr) + count_secondary;
-
-				float freq = 1 / (res / 1000000.0);
+				uint32_t res = countMain + (countSecondary * arr) + countSecondary;
+				freq = 1 / (res / 1000000.0);
+				freq -= (freq*5)/1000;
 
 				char str[96] = {0,};
-				sprintf(str, "Capture Freq: %.4f Hz\n", (float)freq);
+				sprintf(str, "Frequency: %.3f Hz\n--------------------\n", (float)freq);
 				HAL_UART_Transmit(&huart3, (uint8_t*)str, strlen(str), 1000);
 
-				HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
+				HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
 			}
 		}
+	}
+}
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	if(htim == &htim1)
+	{
+		freq = __HAL_TIM_GET_COUNTER(&htim2) - 6*(__HAL_TIM_GET_COUNTER(&htim2)/1000);
+
+		char str[96] = {0,};
+
+		sprintf(str,"Frequency: %.3f MHz | %.3f KHz | %lu Hz\n--------------------\n", (float)freq / 1000000.0, (float)freq / 1000.0, (uint32_t)freq);
+		HAL_UART_Transmit(&huart3, (uint8_t*)str, strlen(str), 1000);
+
+		HAL_TIM_Base_Stop_IT(&htim1);
+		__HAL_TIM_SET_COUNTER(&htim2, 0x0000);
+		HAL_TIM_Base_Start_IT(&htim1);
 	}
 }
 /* USER CODE END 0 */
@@ -152,10 +171,12 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
   HAL_TIM_Base_Start(&htim3);
   //HAL_TIM_Base_Start_IT(&htim1);
+  //HAL_TIM_Base_Start(&htim2);
 
 
   /* USER CODE END 2 */
@@ -165,9 +186,21 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
     /* USER CODE BEGIN 3 */
-		HAL_TIM_IC_CaptureCallback(&htim2);
+	  if (freq < 2)
+	  {
+		  HAL_TIM_Base_Stop_IT(&htim1);
+		  HAL_TIM_Base_Stop(&htim2);
+		  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
+		  HAL_TIM_Base_Start(&htim3);
+	  }
+	  else if (freq >= 2)
+	  {
+		  HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_1);
+		  HAL_TIM_Base_Stop(&htim3);
+		  HAL_TIM_Base_Start_IT(&htim1);
+		  HAL_TIM_Base_Start(&htim2);
+	  }
   }
   /* USER CODE END 3 */
 }
@@ -292,33 +325,40 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 0 */
 
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_IC_InitTypeDef sConfigIC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 53;
+  htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 65535;
+  htim2.Init.Period = 4294967295;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_ETRMODE2;
+  sClockSourceConfig.ClockPolarity = TIM_CLOCKPOLARITY_NONINVERTED;
+  sClockSourceConfig.ClockPrescaler = TIM_CLOCKPRESCALER_DIV1;
+  sClockSourceConfig.ClockFilter = 0;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_GATED;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR0;
+  if (HAL_TIM_SlaveConfigSynchro(&htim2, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -357,7 +397,7 @@ static void MX_TIM3_Init(void)
     Error_Handler();
   }
   sSlaveConfig.SlaveMode = TIM_SLAVEMODE_EXTERNAL1;
-  sSlaveConfig.InputTrigger = TIM_TS_ITR1;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR3;
   if (HAL_TIM_SlaveConfigSynchro(&htim3, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
@@ -371,6 +411,54 @@ static void MX_TIM3_Init(void)
   /* USER CODE BEGIN TIM3_Init 2 */
 
   /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 53;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_IC_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
 
 }
 
